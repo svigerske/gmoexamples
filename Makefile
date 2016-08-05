@@ -9,4 +9,4 @@ clean:
 	cp $< $@
 
 LDFLAGS = -ldl -Wl,-rpath,\$$ORIGIN
-CFLAGS = -Igams/apifiles/C/api -DGAMSDIR=\"gams\"
+CFLAGS = -Igams/apifiles/C/api -DGAMSDIR=\"gams\" -g

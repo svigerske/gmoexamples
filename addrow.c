@@ -9,6 +9,10 @@
 #include "gevmcc.h"
 #include "GamsNLinstr.h"
 
+/** Writes model instance into a .gms file of given name.
+ *
+ * The function calls GAMS/ConvertD to write the instance.
+ */
 static
 RETURN dumpinstance(
    gmoHandle_t gmo,
@@ -39,11 +43,15 @@ RETURN dumpinstance(
    return RETURN_OK;
 }
 
+/** Creates a copy of a GMO object with the possibility to extended the constants pool.
+ *
+ * Matchings (MCP) are not copied so far.
+ */
 static
 RETURN copyGMO(
-   gmoHandle_t  gmo,
-   gmoHandle_t* gmocopy,
-   int nextraconstants
+   gmoHandle_t  gmo,             /**< GMO to copy */
+   gmoHandle_t* gmocopy,         /**< buffer to store pointer to new GMO */
+   int          nextraconstants  /**< the number of extra constants for which space in the constants pool of gmocopy should be reserved */
    )
 {
    gevHandle_t gev;
@@ -70,6 +78,7 @@ RETURN copyGMO(
    }
    gmoRegisterEnvironment(*gmocopy, gev, msg);
 
+   /* only know how to copy if objective variable has not been reformulated out */
    gmoObjStyleSet(gmo, gmoObjType_Var);
 
    /* attributes required to set before adding rows/cols */
@@ -82,11 +91,11 @@ RETURN copyGMO(
    /* direction must be set before adding the matrix */
    gmoSenseSet(*gmocopy, gmoSense(gmo));
 
-   /* model Type must be set before init data */
+   /* model type must be set before init data */
    gmoModelTypeSet(*gmocopy, gmoModelType(gmo));
 
    /* initialize model */
-   gmoInitData(*gmocopy, gmoM(gmo) + 1, gmoN(gmo) + 1, 0);
+   gmoInitData(*gmocopy, gmoM(gmo), gmoN(gmo), 0);
 
    /* add all variables from gmo */
    for( j = 0; j < gmoN(gmo); ++j )
@@ -105,11 +114,15 @@ RETURN copyGMO(
       );
    }
 
+   /* say which one is the objective variable */
    gmoObjVarSet(*gmocopy, gmoObjVar(gmo));
 
+   /* space for coefficients and nonlinear instructions in each row */
    colidx = (int*)malloc(gmoN(gmo) * sizeof(int));
    jacval = (double*)malloc(gmoN(gmo) * sizeof(double));
    nlflag = (int*)malloc(gmoN(gmo) * sizeof(int));
+   opcodes = (int*) malloc(gmoNLCodeSizeMaxRow(gmo) * sizeof(int));
+   fields = (int*) malloc(gmoNLCodeSizeMaxRow(gmo) * sizeof(int));
 
    /* GMO stores one array with the constants that appear in nonlinear instructions: the constants pool
     * Once it has been set, it cannot be extended anymore (no API function).
@@ -120,14 +133,10 @@ RETURN copyGMO(
    memcpy(constants, gmoPPool(gmo), gmoNLConst(gmo) * sizeof(double));
    memset(constants + gmoNLConst(gmo), 0, nextraconstants * sizeof(double));
 
-   ninstr = gmoNLCodeSizeMaxRow(gmo);
-   opcodes = (int*) malloc(ninstr * sizeof(int));
-   fields = (int*) malloc(ninstr * sizeof(int));
-
+   /* add all rows from gmo */
    for( i = 0; i < gmoM(gmo); ++i )
    {
-      /* add equations from MINLP */
-
+      /* copy coefficients */
       gmoGetRowSparse(gmo, i, colidx, jacval, nlflag, &nz, &nlnz);
       gmoAddRow(*gmocopy,
          gmoGetEquTypeOne(gmo, i),
@@ -158,7 +167,6 @@ RETURN copyGMO(
 
    gmoCompleteData(*gmocopy, msg);
 
-
    free(opcodes);
    free(fields);
    free(constants);
@@ -185,7 +193,6 @@ RETURN addrow(
    int ninstr;
    char msg[GMS_SSSIZE];
 
-
    /* Store current level values of all variables at the end of the constants pool. */
    gmoGetVarL(gmo, (double*)gmoPPool(gmo) + (gmoNLConst(gmo) - gmoN(gmo) + 1));
 
@@ -207,6 +214,7 @@ RETURN addrow(
     * setup also colidx, jacval, and nlflags for x_i's
     */
 
+   /* we will need 4*nvars + 1 instructions */
    ninstr = 4*gmoN(gmo)+1;
    opcodes = (int*) malloc(ninstr * sizeof(int));
    fields = (int*) malloc(ninstr * sizeof(int));
@@ -226,7 +234,7 @@ RETURN addrow(
       ++ninstr;
 
       opcodes[ninstr] = nlSubI;
-      fields[ninstr] = gmoNLConst(gmo) - gmoN(gmo) + i + 2;  /* +1 as GMO looks into constants pool in 1-based indexing */
+      fields[ninstr] = gmoNLConst(gmo) - gmoN(gmo) + i + 2;  /* +1 as GMO looks into constants pool in 1-based indexing, and another +1 */
       ++ninstr;
 
       opcodes[ninstr] = nlCallArg1;
@@ -254,8 +262,6 @@ RETURN addrow(
    gmoAddRow(gmo, gmoequ_L, 0, 0.0, 0.0, 10.0 /*rhs*/, 0.0, gmoBstat_Upper, gmoN(gmo), colidx, jacval, nlflag);
    gmoDirtySetRowFNLInstr(gmo, gmoM(gmo)-1, ninstr, opcodes, fields, NULL, NULL, 0);
 
-   gmoCompleteData(gmo, msg);
-
    free(opcodes);
    free(fields);
    free(colidx);
@@ -278,8 +284,24 @@ int main(int argc, char** argv)
       return EXIT_FAILURE;
    }
 
+   /* load .gms file into GMO */
    CHECK( loadGMS(&gmo, &gev, argv[1]) );
 
+   /* Now we would like to add a nonlinear row to gmo.
+    * However, there are (at least) two stumbling blocks that GMO puts in our way:
+    * 1. The constants pool cannot be extended in GMO, as far as I see.
+    *    gmoSetNLObject() gets close to it, but we don't know how to build the nlobject and nlpool objects.
+    * 2. GMO holds one array to store all nonlinear instructions.
+    *    gmoDirtySetRowFNLInstr does not add new nonlinear instructions to the end of this array, but
+    *    where it stopped adding instructions on the previous call (variable "dirtydirty", initialized to 0).
+    *    Thus, we can only add new nonlinear instructions, if we have also added all previous instructions.
+    *    Further, we cannot reset the instructions of existing nonlinear rows to get the "dirtydirty" correct.
+    *
+    * Therefore, we create a copy of the instance in a new GMO object.
+    * When doing this, we already reserve extra space in the constants pool.
+    * Further, setting up the GMO object by row-by-row will update the "dirtydirty" counter so that it will
+    * finally point to the end of the nonlinear instructions array.
+    */
    CHECK( copyGMO(gmo, &gmocopy, gmoN(gmo)) );
 
    CHECK( dumpinstance(gmocopy, "before.gms") );

@@ -8,6 +8,7 @@
 
 #include "loadgms.h"
 
+// set to 3 to see gams log
 #define GAMSLOGOPTION 0
 
 RETURN loadGMS(

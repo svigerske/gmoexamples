@@ -4,6 +4,10 @@ some simple example on using GAMS gmo
 To build, create a symlink "gams" that points to the GAMS system directory.
 Makefile assumes it can find the GAMS API files in gams/apifiles/C/api.
 
+## loadcntr
+A simple main() program that shows how to load a compiled GAMS model
+(from 225? directory) into a GMO object.
+
 ## loadgms
 
 These are help routines to read a problem instance from a .gms file

@@ -1,3 +1,6 @@
+# link to GAMS system directory
+gams
+
 # Object files
 *.o
 *.ko

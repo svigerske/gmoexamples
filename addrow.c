@@ -191,7 +191,6 @@ RETURN addrow(
    int* fields;
    int i;
    int ninstr;
-   char msg[GMS_SSSIZE];
 
    /* Store current level values of all variables at the end of the constants pool. */
    gmoGetVarL(gmo, (double*)gmoPPool(gmo) + (gmoNLConst(gmo) - gmoN(gmo) + 1));

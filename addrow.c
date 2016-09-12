@@ -191,6 +191,7 @@ RETURN addrow(
    int* fields;
    int i;
    int ninstr;
+   char msg[GMS_SSSIZE];
 
    /* Store current level values of all variables at the end of the constants pool. */
    gmoGetVarL(gmo, (double*)gmoPPool(gmo) + (gmoNLConst(gmo) - gmoN(gmo) + 1));
@@ -223,7 +224,7 @@ RETURN addrow(
    nlflag = (int*) malloc((gmoN(gmo)-1) * sizeof(int));
 
    opcodes[0] = nlHeader;
-   fields[0] = 0;
+   /* fields[0] will be set to the number of instructions below */;
    ninstr = 1;
 
    for( i = 0; i < gmoN(gmo); ++i )
@@ -262,9 +263,11 @@ RETURN addrow(
    }
 
    opcodes[ninstr] = nlStore;
-   fields[ninstr] = 0;
+   fields[ninstr] = gmoM(gmo);
    ++ninstr;
    assert(ninstr == 4*(gmoN(gmo)-1)+1);
+
+   fields[0] = ninstr;
 
    /* add row */
    gmoAddRow(gmo, gmoequ_L, 0, 0.0, 0.0, 10.0 /*rhs*/, 0.0, 0, gmoN(gmo)-1, colidx, jacval, nlflag);
@@ -276,7 +279,46 @@ RETURN addrow(
    free(jacval);
    free(nlflag);
 
+   /* call completeData to update some additional counts
+    * without this, equnextNL does not get updated in GMO, which will
+    * prevent including the added row into the Lagrangian Hessian
+    */
+   if( gmoCompleteData(gmo, msg) )
+   {
+      gevLogStatPChar(gmoEnvironment(gmo), "Failure from gmoCompleteData: ");
+      gevLogStat(gmoEnvironment(gmo), msg);
+      return RETURN_ERROR;
+   }
+
    return RETURN_OK;
+}
+
+static
+void printHessian(
+   gmoHandle_t gmo
+)
+{
+   int* rowindex;
+   int* colindex;
+   int dim;
+   int nz;
+   int i;
+
+   dim = gmoHessLagDim(gmo);
+   nz = gmoHessLagNz(gmo);
+   rowindex = (int*)malloc(nz * sizeof(int));
+   colindex = (int*)malloc(nz * sizeof(int));
+
+   gmoHessLagStruct(gmo, rowindex, colindex);
+
+   printf("Hessian (%d nonzeros, dim %d):", nz, dim);
+   for( i = 0; i < nz; ++i )
+      printf(" (%d,%d)", rowindex[i], colindex[i]);
+   printf("\n");
+   printf("NLM: %d\n", gmoNLM(gmo));
+
+   free(rowindex);
+   free(colindex);
 }
 
 
@@ -285,6 +327,7 @@ int main(int argc, char** argv)
    gmoHandle_t gmo;
    gmoHandle_t gmocopy;
    gevHandle_t gev;
+   char msg[255];
 
    if( argc < 2 )
    {
@@ -314,11 +357,27 @@ int main(int argc, char** argv)
 
    CHECK( dumpinstance(gmocopy, "before.gms") );
 
+/*
+   gevCallSolver(gmoEnvironment(gmocopy), gmocopy, "", "ipopt", gevSolveLinkLoadLibrary,
+      gevSolverSameStreams, "", "",
+      1000.0, ITERLIM_INFINITY, 0,
+      0.0, 0.0, NULL, msg);
+   printHessian(gmocopy);
+*/
+
    CHECK( addrow(gmocopy) );
 
    CHECK( dumpinstance(gmocopy, "after.gms") );
 
    system("diff before.gms after.gms");
+
+/*
+   gevCallSolver(gmoEnvironment(gmocopy), gmocopy, "", "ipopt", gevSolveLinkLoadLibrary,
+      gevSolverSameStreams, "", "",
+      1000.0, ITERLIM_INFINITY, 0,
+      0.0, 0.0, NULL, msg);
+   printHessian(gmocopy);
+*/
 
    gmoFree(&gmocopy);
 

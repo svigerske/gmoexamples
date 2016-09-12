@@ -106,7 +106,7 @@ RETURN copyGMO(
          gmoGetVarLOne(gmo, j),
          gmoGetVarUpperOne(gmo, j),
          gmoGetVarMOne(gmo, j),
-         gmoGetVarStatOne(gmo, j),
+         gmoGetVarStatOne(gmo, j) != gmoBstat_Basic,
          gmoGetVarSosSetOne(gmo, j),
          gmoGetVarPriorOne(gmo, j),
          gmoGetVarScaleOne(gmo, j),
@@ -145,7 +145,7 @@ RETURN copyGMO(
          gmoGetEquScaleOne(gmo, i),
          gmoGetRhsOne(gmo, i),
          gmoGetEquMOne(gmo, i),
-         gmoGetEquStatOne(gmo, i),
+         gmoGetEquStatOne(gmo, i) != gmoBstat_Basic,
          nz, colidx, jacval, nlflag
       );
 
@@ -258,7 +258,7 @@ RETURN addrow(
    assert(ninstr == 4*gmoN(gmo)+1);
 
    /* add row */
-   gmoAddRow(gmo, gmoequ_L, 0, 0.0, 0.0, 10.0 /*rhs*/, 0.0, gmoBstat_Upper, gmoN(gmo), colidx, jacval, nlflag);
+   gmoAddRow(gmo, gmoequ_L, 0, 0.0, 0.0, 10.0 /*rhs*/, 0.0, 0, gmoN(gmo), colidx, jacval, nlflag);
    gmoDirtySetRowFNLInstr(gmo, gmoM(gmo)-1, ninstr, opcodes, fields, NULL, NULL, 0);
 
    free(opcodes);

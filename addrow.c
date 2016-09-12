@@ -178,7 +178,7 @@ RETURN copyGMO(
 }
 
 
-/* add row  sum_i (x_i - \hat x_i) <= 10, where \hat x is the initial point */
+/* add row  sum_{i!=objvar} sqr(x_i - \hat x_i) <= 10, where \hat x is the initial point */
 static
 RETURN addrow(
    gmoHandle_t gmo
@@ -213,14 +213,14 @@ RETURN addrow(
     * setup also colidx, jacval, and nlflags for x_i's
     */
 
-   /* we will need 4*nvars + 1 instructions */
-   ninstr = 4*gmoN(gmo)+1;
+   /* we will need 4*(nvars-1) + 1 instructions */
+   ninstr = 4*(gmoN(gmo)-1)+1;
    opcodes = (int*) malloc(ninstr * sizeof(int));
    fields = (int*) malloc(ninstr * sizeof(int));
 
-   colidx = (int*) malloc(gmoN(gmo) * sizeof(int));
-   jacval = (double*) malloc(gmoN(gmo) * sizeof(double));
-   nlflag = (int*) malloc(gmoN(gmo) * sizeof(int));
+   colidx = (int*) malloc((gmoN(gmo)-1) * sizeof(int));
+   jacval = (double*) malloc((gmoN(gmo)-1) * sizeof(double));
+   nlflag = (int*) malloc((gmoN(gmo)-1) * sizeof(int));
 
    opcodes[0] = nlHeader;
    fields[0] = 0;
@@ -228,6 +228,14 @@ RETURN addrow(
 
    for( i = 0; i < gmoN(gmo); ++i )
    {
+      int ii;
+      // skip objective variable
+      // including it here will prevent restoring the objective function form the objective equation,
+      // which GMO assumes that it can do even after adding additional rows including the objective variable
+      // however, calls like gmoGetMatrixRow get confused on the NZ count
+      if( i == gmoObjVar(gmo) )
+         continue;
+
       opcodes[ninstr] = nlPushV;
       fields[ninstr] = gmoGetjModel(gmo, i) + 1;  /* use index in "model-space" (GMO shows "solver-space" to user) and +1 for 1-based indexing (??) */
       ++ninstr;
@@ -240,25 +248,26 @@ RETURN addrow(
       fields[ninstr] = fnsqr;
       ++ninstr;
 
-      if( i > 0 )
+      if( ninstr > 4 )
       {
          opcodes[ninstr] = nlAdd;
          fields[ninstr] = 0;
          ++ninstr;
       }
 
-      colidx[i] = i;   /* these are in "solver-space" again */
-      jacval[i] = 1.0; /* arbitrary, as nonlinear */
-      nlflag[i] = 1;   /* indicate that nonlinear */
+      ii = (i > gmoObjVar(gmo) ? i-1 : i);
+      colidx[ii] = i;   /* these are in "solver-space" again */
+      jacval[ii] = 1.0; /* arbitrary, as nonlinear */
+      nlflag[ii] = 1;   /* indicate that nonlinear */
    }
 
    opcodes[ninstr] = nlStore;
    fields[ninstr] = 0;
    ++ninstr;
-   assert(ninstr == 4*gmoN(gmo)+1);
+   assert(ninstr == 4*(gmoN(gmo)-1)+1);
 
    /* add row */
-   gmoAddRow(gmo, gmoequ_L, 0, 0.0, 0.0, 10.0 /*rhs*/, 0.0, 0, gmoN(gmo), colidx, jacval, nlflag);
+   gmoAddRow(gmo, gmoequ_L, 0, 0.0, 0.0, 10.0 /*rhs*/, 0.0, 0, gmoN(gmo)-1, colidx, jacval, nlflag);
    gmoDirtySetRowFNLInstr(gmo, gmoM(gmo)-1, ninstr, opcodes, fields, NULL, NULL, 0);
 
    free(opcodes);

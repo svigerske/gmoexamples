@@ -43,7 +43,7 @@ RETURN dumpinstance(
    return RETURN_OK;
 }
 
-/** Creates a copy of a GMO object with the possibility to extended the constants pool.
+/** Creates a copy of a GMO object with the possibility to extend the constants pool.
  *
  * Matchings (MCP) are not copied so far.
  */

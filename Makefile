@@ -11,4 +11,4 @@ clean:
 	cp $< $@
 
 LDFLAGS = -ldl -Wl,-rpath,\$$ORIGIN
-CFLAGS = -Igams/apifiles/C/api -DGAMSDIR=\"gams\" -g
+CFLAGS = -Igams/apifiles/C/api -DGAMSDIR=\"gams\" -DGC_NO_MUTEX -g
